@@ -41,8 +41,8 @@ BENCH_SAMPLE_SIZE = 128 * 1024        # 128KB 샘플링
 # 너무 오래 걸리면 앞에서부터 일부 청크만 써보고 싶을 때 (None이면 전체)
 MAX_CHUNKS = None  # 예: 200
 
-# 병렬 프로세스 개수 (None이면 cpu_count())
-NUM_WORKERS = 32
+# # 병렬 프로세스 개수 (None이면 cpu_count())
+# NUM_WORKERS = None
 
 # 모델용 코덱 라벨 매핑
 CODECS = ["zstd", "lz4", "snappy"]
@@ -161,12 +161,12 @@ def run_model_single(tasks: list[tuple[str, int, int]]):
     return total_orig, total_comp, elapsed
 
 
-def run_model_multi(tasks: list[tuple[str, int, int]]):
+def run_model_multi(tasks: list[tuple[str, int, int]], num_workers: int):
     """모델 기반 멀티프로세스 압축."""
     total_orig = 0
     total_comp = 0
 
-    workers = mp.cpu_count() if NUM_WORKERS is None else NUM_WORKERS
+    workers = min(mp.cpu_count(), num_workers)
     ctx = mp.get_context("spawn")
 
     t0 = time.perf_counter()
@@ -239,12 +239,12 @@ def run_codec_single(tasks: list[tuple[str, int, int]], codec: str):
     return total_orig, total_comp, elapsed
 
 
-def run_codec_multi(tasks: list[tuple[str, int, int]], codec: str):
+def run_codec_multi(tasks: list[tuple[str, int, int]], codec: str, num_workers: int):
     """단일 코덱 멀티프로세스 압축."""
     total_orig = 0
     total_comp = 0
 
-    workers = mp.cpu_count() if NUM_WORKERS is None else NUM_WORKERS
+    workers = min(mp.cpu_count(), num_workers)
     ctx = mp.get_context("spawn")
 
     t0 = time.perf_counter()
@@ -301,7 +301,7 @@ def print_result_block(
     print(f"  - 소요 시간: {m_time:.2f} 초")
     print(f"  - 처리 속도: {m_throughput:.2f} MB/s")
 
-    print(f"\n[비교] 속도 배율 (multi / single): {speedup:.2f}x")
+    print(f"\n[비교] 속도 배율 (single / multi): {speedup:.2f}x")
 
 
 # =========================
@@ -315,34 +315,37 @@ def main():
     raw_files = [p for p in RAW_DIR.iterdir() if p.is_file()]
     if not raw_files:
         raise RuntimeError(f"raw 디렉토리에 파일이 없습니다: {RAW_DIR}")
-
+    
     print(f"[INFO] 모델: {MODEL_PATH}")
     print(f"[INFO] raw 디렉토리: {RAW_DIR} (파일 {len(raw_files)}개)")
     for p in raw_files:
         print(f"  - {p.name} ({p.stat().st_size / (1024*1024):.2f} MB)")
-
     print(f"\n[INFO] 청크 크기: {CHUNK_SIZE_BYTES // (1024*1024)} MB")
     print(f"[INFO] 샘플링 크기: {BENCH_SAMPLE_SIZE // 1024} KB")
-
     tasks = build_tasks()
     print(f"[INFO] 대상 청크 수: {len(tasks)}")
+
     if MAX_CHUNKS is not None:
         print(f"[INFO] (MAX_CHUNKS = {MAX_CHUNKS} → 앞 {MAX_CHUNKS}개만 사용)")
 
-    # ---------- 1. 모델 기반 ----------
-    print("\n>>> 1) 모델 기반 싱글/멀티 벤치마크")
-    model_single = run_model_single(tasks)
-    model_multi = run_model_multi(tasks)
-    print_result_block("모델 기반 (adaptive)", model_single, model_multi)
+    NUM_WORKER_LIST = [4, 8, 16, 32, 64, 128]
 
-    # ---------- 2. 단일 코덱들 ----------
-    for codec in ["zstd", "lz4", "snappy"]:
-        print(f"\n>>> 2) 단일 코덱 {codec} 싱글/멀티 벤치마크")
-        codec_single = run_codec_single(tasks, codec)
-        codec_multi = run_codec_multi(tasks, codec)
-        print_result_block(f"단일 코덱: {codec}", codec_single, codec_multi)
+    for num_workers in NUM_WORKER_LIST:
+        print(f"\n===== NUM_WORKERS = {num_workers} =====") 
+
+        # ---------- 1. 모델 기반 ----------
+        print("\n>>> 1) 모델 기반 싱글/멀티 벤치마크")
+        model_single = run_model_single(tasks)
+        model_multi = run_model_multi(tasks, num_workers)
+        print_result_block("모델 기반 (adaptive)", model_single, model_multi)
+
+        # ---------- 2. 단일 코덱들 ----------
+        for codec in ["zstd", "lz4", "snappy"]:
+            print(f"\n>>> 2) 단일 코덱 {codec} 싱글/멀티 벤치마크")
+            codec_single = run_codec_single(tasks, codec)
+            codec_multi = run_codec_multi(tasks, codec, num_workers)
+            print_result_block(f"단일 코덱: {codec}", codec_single, codec_multi)
 
 
 if __name__ == "__main__":
-    # 윈도우에서 multiprocessing이 제대로 동작하도록 가드 필수
     main()
