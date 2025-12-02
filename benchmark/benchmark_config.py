@@ -14,8 +14,8 @@ MODEL_PATH = PROJECT_ROOT / "models" / "model_sample_128KB.json"
 GRAPH_PATH = PROJECT_ROOT / "benchmark" / "graphs"
 
 # 청크 및 샘플링 설정
-CHUNK_SIZE_BYTES = 16 * 1024 * 1024 
-BENCH_SAMPLE_SIZE = 128 * 1024
+CHUNK_SIZE_BYTES = 16 * 1024 * 1024
+BENCH_SAMPLE_SIZE = 64 * 1024
 
 # 최대 청크 수 제한 (None이면 전체)
 MAX_CHUNKS = None
